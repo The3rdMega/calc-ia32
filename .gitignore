@@ -1,0 +1,9 @@
+# Ignorar arquivos objeto
+*.o
+
+# Ignorar o executável final (assumindo que vai se chamar 'calc' ou 'calculadora')
+calc
+calculadora
+
+# Ignorar arquivos de log do montador (se usarem)
+*.lst
