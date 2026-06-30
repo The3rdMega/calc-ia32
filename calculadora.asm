@@ -1,3 +1,60 @@
+section .data
+    ; Mensagens do Menu e Saudação
+    welcome_msg db "Bem-vindo. Digite seu nome: ", 0
+    TAM_MSG_WELCOME equ $ - welcome_msg
+    
+    greeting_msg_1 db "Hola, ", 0
+    TAM_MSG_GREETING_1 equ $ - greeting_msg_1
+    
+    greeting_msg_2 db ", bem-vindo ao programa de CALC IA-32", 10, 0
+    TAM_MSG_GREETING_2 equ $ - greeting_msg_2
+
+    model_choice_msg db "Vai trabalhar com 16 ou 32 bits (digite 0 para 16, e 1 para 32):", 0
+    TAM_MSG_CHOICE equ $ - model_choice_msg
+
+    menu_msg db "ESCOLHA UMA OPÇÃO:", 10
+    db "- 1: SOMA", 10
+    db "- 2: SUBTRACAO", 10
+    db "- 3: MULTIPLICACAO", 10
+    db "- 4: DIVISAO", 10
+    db "- 5: EXPONENCIACAO", 10
+    db "- 6: MOD", 10
+    db "- 7: SAIR", 10
+    TAM_MSG_MENU equ $ - menu_msg
+
+    ; Mensagens padrão de operandos e resultado
+    msg_num1 db "Digite o primeiro numero: ", 0
+    TAM_MSG_NUM1 equ $ - msg_num1
+    
+    msg_num2 db "Digite o segundo numero: ", 0
+    TAM_MSG_NUM2 equ $ - msg_num2
+
+    msg_resultado db "Resultado: ", 0
+    TAM_MSG_RESULTADO equ $ - msg_resultado
+
+    ; MENSAGEM NOVA PARA ESPERAR O ENTER
+    msg_enter db "Pressione ENTER para continuar...", 10, 0
+    TAM_MSG_ENTER equ $ - msg_enter
+
+    ; Informação de Ligação
+    global print_string
+    extern calcular_soma
+    extern calcular_sub 
+    extern calcular_mult
+    extern calcular_div
+    extern calcular_exp
+    extern calcular_mod
+
+section .bss
+    ; APENAS AS VARIÁVEIS PERMITIDAS PELO ROTEIRO:
+    buffer_nome_usuario resb 50 
+    buffer_choice resb 3 
+    choice_precisao resd 1  
+    buffer_menu_current resb 3 
+    menu_current resd 1 
+    
+    ; AS VARIÁVEIS DE NÚMERO E BUFFERS FORAM EXCLUÍDAS DAQUI!
+
 section .text
 global _start
 
@@ -67,129 +124,202 @@ read_string:
     ret             ; Retorna para o fluxo de execução original
 
 ; =================================================================
-; FUNÇÃO: coletar_parametros
-; Imprime as mensagens, lê os dois números do teclado e salva
-; nas variáveis globais var_num1 e var_num2.
+; FUNÇÃO: pedir_numero
+; Pede um número ao usuário usando um buffer LOCAL na pilha.
+; Decide dinamicamente entre conversão de 16 ou 32 bits.
+; Parâmetros na pilha:
+;   [ebp + 12] -> Tamanho da mensagem (msg_num1 ou msg_num2)
+;   [ebp + 8]  -> Endereço da mensagem
+; Saída:
+;   EAX -> Valor inteiro convertido
 ; =================================================================
-coletar_parametros:
+pedir_numero:
     push ebp
     mov ebp, esp
-    
-    ; Preserva EAX para não sujar nada
-    push eax
+    sub esp, 20             ; ALOCAÇÃO LOCAL: Cria um buffer temporário de 20 bytes na pilha
 
-    ; --- LER NÚMERO 1 ---
-    push dword TAM_MSG_NUM1
-    push msg_num1
+    ; -------------------------------------------------------------
+    ; 1. Imprime a mensagem pedindo o número
+    ; -------------------------------------------------------------
+    push dword [ebp + 12]
+    push dword [ebp + 8]
     call print_string
     add esp, 8
 
-    push dword 20           ; Tamanho máximo (20 bytes é bem seguro)
-    push buffer_input
-    call read_string
-    add esp, 8
-
-    push buffer_input
-    call str_to_int
-    add esp, 4
-    mov [var_num1], eax     ; Salva direto na memória
-
-    ; --- LER NÚMERO 2 ---
-    push dword TAM_MSG_NUM2
-    push msg_num2
-    call print_string
-    add esp, 8
-
+    ; -------------------------------------------------------------
+    ; 2. Lê do teclado e guarda no buffer LOCAL
+    ; -------------------------------------------------------------
     push dword 20
-    push buffer_input
+    lea eax, [ebp - 20]     ; 'lea' carrega o endereço da variável local [ebp-20]
+    push eax
     call read_string
     add esp, 8
 
-    push buffer_input
-    call str_to_int
-    add esp, 4
-    mov [var_num2], eax     ; Salva direto na memória
+    ; -------------------------------------------------------------
+    ; 3. Verifica a precisão escolhida pelo usuário
+    ; -------------------------------------------------------------
+    mov ecx, [choice_precisao]  ; Traz a precisão global (0 para 16, 1 para 32)
+    cmp ecx, 0
+    je .converte_16_bits        ; Se for 0, pula para a função de 16 bits
 
-    pop eax
-    mov esp, ebp
+.converte_32_bits:
+    ; -------------------------------------------------------------
+    ; Chama a conversão de 32 bits
+    ; -------------------------------------------------------------
+    lea eax, [ebp - 20]     ; Passa o endereço do buffer local
+    push eax
+    call str_to_int_32
+    add esp, 4
+    jmp .fim_pedir_numero   ; Pula para o fim, pois o EAX já está com a resposta
+
+.converte_16_bits:
+    ; -------------------------------------------------------------
+    ; Chama a conversão de 16 bits
+    ; -------------------------------------------------------------
+    lea eax, [ebp - 20]     ; Passa o endereço do buffer local
+    push eax
+    call str_to_int_16
+    add esp, 4              ; A função _16 já garante a saída no EAX (via movsx)
+
+.fim_pedir_numero:
+    ; O EAX agora contém o número matemático convertido!
+    mov esp, ebp            ; Desfaz o frame de pilha (e destrói o buffer temporário)
     pop ebp
     ret
 
 ; =================================================================
-; FUNÇÃO: str_to_int
-; Converte uma string ASCII com terminação '\n' ou '\0' para um inteiro.
+; FUNÇÃO: str_to_int_32
+; Converte uma string ASCII (com sinal) para inteiro de 32 bits.
 ; Parâmetros na pilha:
 ;   [ebp + 8]  -> Endereço da string a ser convertida (ponteiro)
 ; Saída:
-;   EAX -> Valor inteiro resultante
+;   EAX -> Valor inteiro resultante (32 bits)
 ; =================================================================
-str_to_int:
-    push ebp                ; Preparação: salva o antigo EBP em [ebp]
-    mov ebp, esp            ; Preparação: define o novo EBP como base
+str_to_int_32:
+    push ebp                
+    mov ebp, esp            
 
-    push ebx    ; Salva Registrador de Base em [ebp+4]
-    push ecx    ; Salva Registrador de Contador em [ebp+8]
-    push edx    ; Salva Registrador de Dados em [ebp+12]
-    push esi    ; Salva Registrador de Stack Pointer em [ebp+16]
-    push edi    ; Salva Registrador de Extended Destination Index em [ebp+18]
+    push ebx    
+    push ecx    
+    push edx    
+    push esi    
+    push edi    
 
     mov esi, [ebp + 8]      ; ESI aponta para o início da string
-    sub eax, eax            ; EAX = 0 (Nosso Acumulador)
-    sub ecx, ecx            ; ECX = 0 (Vai guardar cada caractere lido)
-    sub edi, edi            ; EDI = 0 (Flag de sinal: 0 = positivo, 1 = negativo)
-    mov ebx, 10             ; EBX = 10 (O multiplicador constante)
+    sub eax, eax            ; EAX = 0 (Acumulador de 32 bits)
+    sub ecx, ecx            ; ECX = 0 
+    sub edi, edi            ; EDI = 0 (Flag de sinal)
+    mov ebx, 10             ; EBX = 10 (Multiplicador de 32 bits)
 
-    ; -------------------------------------------------------------
-    ; VERIFICAÇÃO DO SINAL NEGATIVO ANTES DO LOOP
-    ; -------------------------------------------------------------
-    mov cl, [esi]           ; Olha o primeiro caractere
-    cmp cl, '-'             ; É um sinal de menos?
-    jne .loop_converter     ; Se não for, pula direto para o loop de conversão
+    ; VERIFICAÇÃO DO SINAL NEGATIVO 
+    mov cl, [esi]           
+    cmp cl, '-'             
+    jne .loop_converter     
 
-    ; Se for negativo:
-    mov edi, 1              ; Levanta a flag de número negativo!
-    inc esi                 ; Avança o ponteiro para ignorar o caractere '-' na leitura matemática
+    mov edi, 1              ; Levanta a flag de número negativo
+    inc esi                 ; Avança o ponteiro 
 
 .loop_converter:
-    mov cl, [esi]           ; Lê 1 byte (caractere) da string apontada por ESI
+    mov cl, [esi]           
     
     cmp cl, 10              ; É um '\n'?
-    je .aplica_sinal        ; Se sim, terminamos de ler os números
+    je .aplica_sinal        
     cmp cl, 0               ; É um '\0'?
-    je .aplica_sinal        ; Se sim, terminamos de ler os números
+    je .aplica_sinal        
 
-    ; Se não for fim de string, é um dígito válido
-    sub cl, 30h             ; Converte ASCII para valor numérico ('5' -> 5)
+    sub cl, 30h             ; Converte ASCII para numérico
 
-    ; Multiplica o acumulador atual (EAX) por 10
-    ; A instrução 'mul ebx' faz: EDX:EAX = EAX * EBX.
-    ; Como lidamos com números que cabem em 32 bits, o resultado fica no próprio EAX.
-    mul ebx                 
+    mul ebx                 ; EDX:EAX = EAX * EBX
+    add eax, ecx            ; Soma no acumulador
 
-    add eax, ecx            ; Soma o novo dígito ao acumulador
-
-    inc esi                 ; Avança o ponteiro para o próximo caractere da string
-    jmp .loop_converter     ; Repete o ciclo
+    inc esi                 
+    jmp .loop_converter     
 
 .aplica_sinal:
-    ; -------------------------------------------------------------
-    ; VERIFICA A FLAG DE SINAL ANTES DE RETORNAR
-    ; -------------------------------------------------------------
-    cmp edi, 1              ; A flag de negativo foi levantada lá no início?
-    jne .fim_conversao      ; Se não, o EAX já está com o número positivo correto
+    cmp edi, 1              
+    jne .fim_conversao      
 
-    neg eax                 ; Se sim, inverte o sinal matemático do EAX (ex: 150 vira -150)
+    neg eax                 ; Inverte sinal em 32 bits
 
 .fim_conversao:
-    pop edi    ; Recupera Registrador de Extended Destination Index em [ebp-18]
-    pop esi    ; Recupera Registrador de Stack Pointer em [ebp-16]
-    pop edx    ; Recupera Registrador de Dados em [ebp-12]
-    pop ecx    ; Recupera Registrador de Contador em [ebp-8]     
-    pop ebx    ; Recupera Registrador de Base em [ebp-4]
+    pop edi    
+    pop esi    
+    pop edx    
+    pop ecx    
+    pop ebx    
 
-    mov esp, ebp    ; Finalização: Desfaz o frame de pilha
-    pop ebp         ; Finalização: Restaura o EBP original
-    ret             ; Retorna para o fluxo de execução original
+    mov esp, ebp    
+    pop ebp         
+    ret
+
+; =================================================================
+; FUNÇÃO: str_to_int_16
+; Converte uma string ASCII (com sinal) para inteiro de 16 bits.
+; Parâmetros na pilha:
+;   [ebp + 8]  -> Endereço da string a ser convertida (ponteiro)
+; Saída:
+;   EAX -> Valor inteiro resultante estendido (regra do roteiro)
+; =================================================================
+str_to_int_16:
+    push ebp                
+    mov ebp, esp            
+
+    push ebx    
+    push ecx    
+    push edx    
+    push esi    
+    push edi    
+
+    mov esi, [ebp + 8]      ; Ponteiros DEVEM continuar em 32 bits
+    sub ax, ax              ; AX = 0 (Acumulador matemático de 16 bits)
+    sub cx, cx              ; CX = 0 
+    sub edi, edi            ; Flag de sinal (pode manter 32 bits para lógica de controle)
+    mov bx, 10              ; BX = 10 (Multiplicador de 16 bits)
+
+    ; VERIFICAÇÃO DO SINAL NEGATIVO 
+    mov cl, [esi]           
+    cmp cl, '-'             
+    jne .loop_converter     
+
+    mov edi, 1              ; Levanta a flag de número negativo
+    inc esi                 
+
+.loop_converter:
+    mov cl, [esi]           
+    
+    cmp cl, 10              
+    je .aplica_sinal        
+    cmp cl, 0               
+    je .aplica_sinal        
+
+    sub cl, 30h             
+
+    ; Matemática estrita em 16 bits
+    mul bx                  ; DX:AX = AX * BX
+    add ax, cx              ; Soma no acumulador de 16 bits
+
+    inc esi                 
+    jmp .loop_converter     
+
+.aplica_sinal:
+    cmp edi, 1              
+    jne .finaliza_extensao      
+
+    neg ax                  ; Inverte sinal do registrador de 16 bits
+
+.finaliza_extensao:
+    ; O roteiro exige a saída em EAX. Pegamos o AX e estendemos o sinal para 32 bits.
+    movsx eax, ax           
+
+    pop edi    
+    pop esi    
+    pop edx    
+    pop ecx    
+    pop ebx    
+
+    mov esp, ebp    
+    pop ebp         
+    ret
 
 ; =================================================================
 ; FUNÇÃO: int_to_str
@@ -260,6 +390,10 @@ int_to_str:
     inc edi
     mov byte [edi], 0       ; Terminador de string (nulo)
     
+    ; --- NOVIDADE: Calcular o tamanho exato da string ---
+    mov eax, edi            ; EAX = ponteiro de memória atual (final da string)
+    sub eax, [ebp + 8]      ; Subtrai o ponteiro inicial = Quantidade de bytes escritos!
+    
     pop edi    ; Recupera Registrador de Extended Destination Index em [ebp-18]
     pop esi    ; Recupera Registrador de Stack Pointer em [ebp-16]
     pop edx    ; Recupera Registrador de Dados em [ebp-12]
@@ -270,44 +404,6 @@ int_to_str:
     pop ebp
     ret
 
-section .data
-    welcome_msg db "Bem-vindo. Digite seu nome: ", 0
-    TAM_MSG_WELCOME equ $ - welcome_msg
-    
-    greeting_msg_1 db "Hola, ", 0
-    TAM_MSG_GREETING_1 equ $ - greeting_msg_1
-    
-    greeting_msg_2 db ", bem-vindo ao programa de CALC IA-32", 10, 0
-    TAM_MSG_GREETING_2 equ $ - greeting_msg_2
-
-    model_choice_msg db "Vai trabalhar com 16 ou 32 bits (digite 0 para 16, e 1 para 32):", 0
-    TAM_MSG_CHOICE equ $ - model_choice_msg
-
-    menu_msg db "ESCOLHA UMA OPÇÃO:", 10
-    db "- 1: SOMA", 10
-    db "- 2: SUBTRACAO", 10
-    db "- 3: MULTIPLICACAO", 10
-    db "- 4: DIVISAO", 10
-    db "- 5: EXPONENCIACAO", 10
-    db "- 6: MOD", 10
-    db "- 7: SAIR", 10
-    TAM_MSG_MENU equ $ - menu_msg
-
-section .bss
-    ; Buffer do nome do usuário
-    buffer_nome_usuario resb 50     ; Reserva 50 bytes para o nome do usuário
-
-    ; Buffers da escolha (16 bits ou 32 bits)
-    buffer_choice resb 3 ; Buffer temporário para ler o que foi digitado (caractere + \n)
-    choice_precisao resd 1  ; Variável de 32 bits para guardar o número final (0 ou 1)
-    
-    ; -------------------------------------------------------------
-    ; Buffers de Seleção do Menu
-    ; -------------------------------------------------------------
-    buffer_menu_current resb 3 ; Buffer temporário para ler o que foi digitado (caractere + \n)
-    menu_current resd 1 ; Variável de 32 bits para guardar o número final (0 ou 1)
-
-section .text
 _start:
     ; -------------------------------------------------------------
     ; EXIBIR MENSAGEM (WELCOME)
@@ -403,326 +499,521 @@ menu_anchor:
     ; -------------------------------------------------------------
     ; ROTEAMENTO DO MENU (Switch-Case)
     ; -------------------------------------------------------------
-    mov eax, [menu_current]  ; Traz a escolha do usuário da memória para o registrador
+    mov eax, [menu_current]
 
     cmp eax, 1
-    je exec_soma
-
+    je .chama_soma
     cmp eax, 2
-    je exec_subtracao
-
+    je .chama_sub
     cmp eax, 3
-    je exec_multiplicacao
-
+    je .chama_mult
     cmp eax, 4
-    je exec_divisao
-
+    je .chama_div
     cmp eax, 5
-    je exec_exponenciacao
-
+    je .chama_exp
     cmp eax, 6
-    je exec_mod
-
+    je .chama_mod
     cmp eax, 7
     je exec_sair
 
-    ; Se o usuário digitou algo diferente de 1 a 7, podemos simplesmente
-    ; encerrar o programa por segurança (ou pular de volta para o menu, 
-    ; mas vamos focar no caminho feliz por enquanto).
-    jmp exec_sair
+    jmp menu_anchor           ; Segurança contra erro de digitação
 
+.chama_soma:
+    call exec_soma
+    jmp esperar_enter
+.chama_sub:
+    call exec_subtracao
+    jmp esperar_enter
+.chama_mult:
+    call exec_multiplicacao
+    jmp esperar_enter
+.chama_div:
+    call exec_divisao
+    jmp esperar_enter
+.chama_exp:
+    call exec_exponenciacao
+    jmp esperar_enter
+.chama_mod:
+    call exec_mod
+    jmp esperar_enter
 
+esperar_enter:
+    ; -------------------------------------------------------------
+    ; Item 41: Esperar o usuário digitar ENTER para voltar ao menu
+    ; -------------------------------------------------------------
+    push dword TAM_MSG_ENTER
+    push msg_enter
+    call print_string
+    add esp, 8
+
+    ; Lê algo inútil do teclado apenas para pausar a tela
+    push dword 3
+    push buffer_menu_current
+    call read_string
+    add esp, 8
+
+    jmp menu_anchor         ; Agora sim, volta pro Menu!
 
 ; =================================================================
 ; BLOCOS DE EXECUÇÃO DAS OPERAÇÕES
 ; =================================================================
-
-section .data
-    ; Informação de Ligação
-    global print_string
-    extern calcular_soma
-    extern calcular_sub 
-    extern calcular_mult
-    extern calcular_div
-    extern calcular_exp
-    extern calcular_mod
-    
-    ; Mensagens padrão de operandos e resultado
-
-    msg_num1 db "Digite o primeiro numero: ", 0
-    TAM_MSG_NUM1 equ $ - msg_num1
-    
-    msg_num2 db "Digite o segundo numero: ", 0
-    TAM_MSG_NUM2 equ $ - msg_num2
-
-    msg_resultado db "Resultado: ", 0
-    TAM_MSG_RESULTADO equ $ - msg_resultado
-
-section .bss
-    buffer_input resb 20     ; Buffer genérico para ler os números (20 bytes é mais que suficiente)
-    var_num1 resd 1          ; Guardará o inteiro 1
-    var_num2 resd 1          ; Guardará o inteiro 2
-    buffer_resultado resb 20 ; Guardará o resultado da operação
-
 section .text
 
 exec_soma:
-    ; Aqui prepararemos os parâmetros e chamaremos a função do arquivo soma.asm
+    push ebp
+    mov ebp, esp
+    
+    ; -------------------------------------------------------------
+    ; ALOCAÇÃO LOCAL: O Mapa da Pilha
+    ; [ebp - 4]  -> Guarda o num1 (4 bytes)
+    ; [ebp - 8]  -> Guarda o num2 (4 bytes)
+    ; [ebp - 12] -> Guarda o TAMANHO EXATO da string de saída (4 bytes)
+    ; [ebp - 32] -> Guarda o buffer_resultado (20 bytes)
+    ; TOTAL ALOCADO: 32 bytes!
+    ; -------------------------------------------------------------
+    sub esp, 32
 
     ; -------------------------------------------------------------
-    ; 1. Coleta os parâmetros
+    ; 1. Pede o num1
     ; -------------------------------------------------------------
-    call coletar_parametros
+    push dword TAM_MSG_NUM1
+    push msg_num1
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 4], eax      ; GUARDA NA VARIÁVEL LOCAL 1
+
     ; -------------------------------------------------------------
-    ; 2. Empilha os parâmetros
+    ; 2. Pede o num2
     ; -------------------------------------------------------------
-    mov eax, [var_num2]
-    push eax                    ; [ebp + 16] num2
-    mov eax, [var_num1]
-    push eax                    ; [ebp + 12] num1
-    mov eax, [choice_precisao]
-    push eax                    ; [ebp + 8] precisao
+    push dword TAM_MSG_NUM2
+    push msg_num2
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 8], eax      ; GUARDA NA VARIÁVEL LOCAL 2
+
     ; -------------------------------------------------------------
-    ; 3. Chama a função Soma
+    ; 3. Empilha e chama o módulo de matemática
     ; -------------------------------------------------------------
-    call calcular_soma          ; Pula para o arquivo soma.asm
-    add esp, 12                 ; Limpa os 3 parâmetros da pilha (3 * 4 = 12 bytes)
+    push dword [ebp - 8]    ; Empilha num2
+    push dword [ebp - 4]    ; Empilha num1
+    push dword [choice_precisao] 
+    call calcular_soma      ; Chama a função externa
+    add esp, 12
+
     ; -------------------------------------------------------------
-    ; 4. Imprimir resultado da Soma (EAX)
+    ; 4. Converte o Resultado (EAX) para String
     ; -------------------------------------------------------------
-    push eax                    ; Empilha o resultado (que está no EAX)
-    push buffer_resultado       ; Empilha o buffer vazio que receberá a string
-    call int_to_str             ; Converte para string
+    push eax                ; Resultado matemático retornado no EAX
+    lea edx, [ebp - 32]     ; Endereço do buffer local
+    push edx
+    call int_to_str
     add esp, 8
 
-    ; Exibe a string "Resultado: "
+    ; A MÁGICA SEGURA: O EAX agora tem o tamanho exato. 
+    ; Vamos guardar ele na nossa nova variável local!
+    mov [ebp - 12], eax     
+
+    ; -------------------------------------------------------------
+    ; 5. Imprime "Resultado: "
+    ; -------------------------------------------------------------
     push dword TAM_MSG_RESULTADO
     push msg_resultado
     call print_string
     add esp, 8
 
-    ; Exibe o número final
-    push dword 20               ; Tamanho do buffer 
-    push buffer_resultado
+    ; -------------------------------------------------------------
+    ; 6. Imprime o número com o tamanho cravado!
+    ; -------------------------------------------------------------
+    push dword [ebp - 12]   ; Puxa o tamanho exato da variável local
+    lea edx, [ebp - 32]     ; Puxa o endereço do buffer local
+    push edx
     call print_string
     add esp, 8
-    
-    jmp menu_anchor
+
+    ; Desfaz o Stack Frame local e volta para o _start
+    mov esp, ebp
+    pop ebp
+    ret
 
 exec_subtracao:
-    ; Aqui prepararemos os parâmetros e chamaremos a função do arquivo subtracao.asm
+    push ebp
+    mov ebp, esp
+    
+    ; -------------------------------------------------------------
+    ; ALOCAÇÃO LOCAL: O Mapa da Pilha
+    ; [ebp - 4]  -> Guarda o num1 (4 bytes)
+    ; [ebp - 8]  -> Guarda o num2 (4 bytes)
+    ; [ebp - 12] -> Guarda o TAMANHO EXATO da string de saída (4 bytes)
+    ; [ebp - 32] -> Guarda o buffer_resultado (20 bytes)
+    ; TOTAL ALOCADO: 32 bytes!
+    ; -------------------------------------------------------------
+    sub esp, 32
 
     ; -------------------------------------------------------------
-    ; 1. Coleta os parâmetros
+    ; 1. Pede o num1
     ; -------------------------------------------------------------
-    call coletar_parametros
+    push dword TAM_MSG_NUM1
+    push msg_num1
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 4], eax      ; GUARDA NA VARIÁVEL LOCAL 1
+
     ; -------------------------------------------------------------
-    ; 2. Empilha os parâmetros
+    ; 2. Pede o num2
     ; -------------------------------------------------------------
-    mov eax, [var_num2]
-    push eax                    ; [ebp + 16] num2
-    mov eax, [var_num1]
-    push eax                    ; [ebp + 12] num1
-    mov eax, [choice_precisao]
-    push eax                    ; [ebp + 8] precisao
+    push dword TAM_MSG_NUM2
+    push msg_num2
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 8], eax      ; GUARDA NA VARIÁVEL LOCAL 2
+
     ; -------------------------------------------------------------
-    ; 3. Chama a função Subtração
+    ; 3. Empilha e chama o módulo de matemática
     ; -------------------------------------------------------------
-    call calcular_sub           ; Pula para o arquivo subtracao.asm
-    add esp, 12                 ; Limpa os 3 parâmetros da pilha (3 * 4 = 12 bytes)
+    push dword [ebp - 8]    ; Empilha num2
+    push dword [ebp - 4]    ; Empilha num1
+    push dword [choice_precisao] 
+    call calcular_sub      ; Chama a função externa
+    add esp, 12
+
     ; -------------------------------------------------------------
-    ; 4. Imprimir resultado da Subtração (EAX)
+    ; 4. Converte o Resultado (EAX) para String
     ; -------------------------------------------------------------
-    push eax                    ; Empilha o resultado (que está no EAX)
-    push buffer_resultado       ; Empilha o buffer vazio que receberá a string
-    call int_to_str             ; Converte para string
+    push eax                ; Resultado matemático retornado no EAX
+    lea edx, [ebp - 32]     ; Endereço do buffer local
+    push edx
+    call int_to_str
     add esp, 8
 
-    ; Exibe a string "Resultado: "
+    ; A MÁGICA SEGURA: O EAX agora tem o tamanho exato. 
+    ; Vamos guardar ele na nossa nova variável local!
+    mov [ebp - 12], eax     
+
+    ; -------------------------------------------------------------
+    ; 5. Imprime "Resultado: "
+    ; -------------------------------------------------------------
     push dword TAM_MSG_RESULTADO
     push msg_resultado
     call print_string
     add esp, 8
 
-    ; Exibe o número final
-    push dword 20               ; Tamanho do buffer 
-    push buffer_resultado
+    ; -------------------------------------------------------------
+    ; 6. Imprime o número com o tamanho cravado!
+    ; -------------------------------------------------------------
+    push dword [ebp - 12]   ; Puxa o tamanho exato da variável local
+    lea edx, [ebp - 32]     ; Puxa o endereço do buffer local
+    push edx
     call print_string
     add esp, 8
-    
-    jmp menu_anchor
+
+    ; Desfaz o Stack Frame local e volta para o _start
+    mov esp, ebp
+    pop ebp
+    ret
 
 exec_multiplicacao:
-    ; Aqui prepararemos os parâmetros e chamaremos a função do arquivo multiplicacao.asm
+        push ebp
+    mov ebp, esp
+    
+    ; -------------------------------------------------------------
+    ; ALOCAÇÃO LOCAL: O Mapa da Pilha
+    ; [ebp - 4]  -> Guarda o num1 (4 bytes)
+    ; [ebp - 8]  -> Guarda o num2 (4 bytes)
+    ; [ebp - 12] -> Guarda o TAMANHO EXATO da string de saída (4 bytes)
+    ; [ebp - 32] -> Guarda o buffer_resultado (20 bytes)
+    ; TOTAL ALOCADO: 32 bytes!
+    ; -------------------------------------------------------------
+    sub esp, 32
 
     ; -------------------------------------------------------------
-    ; 1. Coleta os parâmetros
+    ; 1. Pede o num1
     ; -------------------------------------------------------------
-    call coletar_parametros
+    push dword TAM_MSG_NUM1
+    push msg_num1
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 4], eax      ; GUARDA NA VARIÁVEL LOCAL 1
+
     ; -------------------------------------------------------------
-    ; 2. Empilha os parâmetros
+    ; 2. Pede o num2
     ; -------------------------------------------------------------
-    mov eax, [var_num2]
-    push eax                    ; [ebp + 16] num2
-    mov eax, [var_num1]
-    push eax                    ; [ebp + 12] num1
-    mov eax, [choice_precisao]
-    push eax                    ; [ebp + 8] precisao
+    push dword TAM_MSG_NUM2
+    push msg_num2
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 8], eax      ; GUARDA NA VARIÁVEL LOCAL 2
+
     ; -------------------------------------------------------------
-    ; 3. Chama a função Multiplicação
+    ; 3. Empilha e chama o módulo de matemática
     ; -------------------------------------------------------------
-    call calcular_mult          ; Pula para o arquivo multiplicacao.asm
-    add esp, 12                 ; Limpa os 3 parâmetros da pilha (3 * 4 = 12 bytes)
+    push dword [ebp - 8]    ; Empilha num2
+    push dword [ebp - 4]    ; Empilha num1
+    push dword [choice_precisao] 
+    call calcular_mult      ; Chama a função externa
+    add esp, 12
+
     ; -------------------------------------------------------------
-    ; 4. Imprimir resultado da Multiplicação (EAX)
+    ; 4. Converte o Resultado (EAX) para String
     ; -------------------------------------------------------------
-    push eax                    ; Empilha o resultado (que está no EAX)
-    push buffer_resultado       ; Empilha o buffer vazio que receberá a string
-    call int_to_str             ; Converte para string
+    push eax                ; Resultado matemático retornado no EAX
+    lea edx, [ebp - 32]     ; Endereço do buffer local
+    push edx
+    call int_to_str
     add esp, 8
 
-    ; Exibe a string "Resultado: "
+    ; A MÁGICA SEGURA: O EAX agora tem o tamanho exato. 
+    ; Vamos guardar ele na nossa nova variável local!
+    mov [ebp - 12], eax     
+
+    ; -------------------------------------------------------------
+    ; 5. Imprime "Resultado: "
+    ; -------------------------------------------------------------
     push dword TAM_MSG_RESULTADO
     push msg_resultado
     call print_string
     add esp, 8
 
-    ; Exibe o número final
-    push dword 20               ; Tamanho do buffer 
-    push buffer_resultado
+    ; -------------------------------------------------------------
+    ; 6. Imprime o número com o tamanho cravado!
+    ; -------------------------------------------------------------
+    push dword [ebp - 12]   ; Puxa o tamanho exato da variável local
+    lea edx, [ebp - 32]     ; Puxa o endereço do buffer local
+    push edx
     call print_string
     add esp, 8
 
-    jmp menu_anchor
+    ; Desfaz o Stack Frame local e volta para o _start
+    mov esp, ebp
+    pop ebp
+    ret
 
 exec_divisao:
-    ; Aqui prepararemos os parâmetros e chamaremos a função do arquivo divisao.asm
+        push ebp
+    mov ebp, esp
+    
+    ; -------------------------------------------------------------
+    ; ALOCAÇÃO LOCAL: O Mapa da Pilha
+    ; [ebp - 4]  -> Guarda o num1 (4 bytes)
+    ; [ebp - 8]  -> Guarda o num2 (4 bytes)
+    ; [ebp - 12] -> Guarda o TAMANHO EXATO da string de saída (4 bytes)
+    ; [ebp - 32] -> Guarda o buffer_resultado (20 bytes)
+    ; TOTAL ALOCADO: 32 bytes!
+    ; -------------------------------------------------------------
+    sub esp, 32
 
     ; -------------------------------------------------------------
-    ; 1. Coleta os parâmetros
+    ; 1. Pede o num1
     ; -------------------------------------------------------------
-    call coletar_parametros
+    push dword TAM_MSG_NUM1
+    push msg_num1
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 4], eax      ; GUARDA NA VARIÁVEL LOCAL 1
+
     ; -------------------------------------------------------------
-    ; 2. Empilha os parâmetros
+    ; 2. Pede o num2
     ; -------------------------------------------------------------
-    mov eax, [var_num2]
-    push eax                    ; [ebp + 16] num2
-    mov eax, [var_num1]
-    push eax                    ; [ebp + 12] num1
-    mov eax, [choice_precisao]
-    push eax                    ; [ebp + 8] precisao
+    push dword TAM_MSG_NUM2
+    push msg_num2
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 8], eax      ; GUARDA NA VARIÁVEL LOCAL 2
+
     ; -------------------------------------------------------------
-    ; 3. Chama a função Divisão
+    ; 3. Empilha e chama o módulo de matemática
     ; -------------------------------------------------------------
-    call calcular_div           ; Pula para o arquivo divisao.asm
-    add esp, 12                 ; Limpa os 3 parâmetros da pilha (3 * 4 = 12 bytes)
+    push dword [ebp - 8]    ; Empilha num2
+    push dword [ebp - 4]    ; Empilha num1
+    push dword [choice_precisao] 
+    call calcular_div      ; Chama a função externa
+    add esp, 12
+
     ; -------------------------------------------------------------
-    ; 4. Imprimir resultado da Divisão (EAX)
+    ; 4. Converte o Resultado (EAX) para String
     ; -------------------------------------------------------------
-    push eax                    ; Empilha o resultado (que está no EAX)
-    push buffer_resultado       ; Empilha o buffer vazio que receberá a string
-    call int_to_str             ; Converte para string
+    push eax                ; Resultado matemático retornado no EAX
+    lea edx, [ebp - 32]     ; Endereço do buffer local
+    push edx
+    call int_to_str
     add esp, 8
 
-    ; Exibe a string "Resultado: "
+    ; A MÁGICA SEGURA: O EAX agora tem o tamanho exato. 
+    ; Vamos guardar ele na nossa nova variável local!
+    mov [ebp - 12], eax     
+
+    ; -------------------------------------------------------------
+    ; 5. Imprime "Resultado: "
+    ; -------------------------------------------------------------
     push dword TAM_MSG_RESULTADO
     push msg_resultado
     call print_string
     add esp, 8
 
-    ; Exibe o número final
-    push dword 20               ; Tamanho do buffer 
-    push buffer_resultado
+    ; -------------------------------------------------------------
+    ; 6. Imprime o número com o tamanho cravado!
+    ; -------------------------------------------------------------
+    push dword [ebp - 12]   ; Puxa o tamanho exato da variável local
+    lea edx, [ebp - 32]     ; Puxa o endereço do buffer local
+    push edx
     call print_string
     add esp, 8
 
-    jmp menu_anchor
+    ; Desfaz o Stack Frame local e volta para o _start
+    mov esp, ebp
+    pop ebp
+    ret
 
 exec_exponenciacao:
-    ; Aqui prepararemos os parâmetros e chamaremos a função do arquivo exponenciacao.asm
+        push ebp
+    mov ebp, esp
+    
+    ; -------------------------------------------------------------
+    ; ALOCAÇÃO LOCAL: O Mapa da Pilha
+    ; [ebp - 4]  -> Guarda o num1 (4 bytes)
+    ; [ebp - 8]  -> Guarda o num2 (4 bytes)
+    ; [ebp - 12] -> Guarda o TAMANHO EXATO da string de saída (4 bytes)
+    ; [ebp - 32] -> Guarda o buffer_resultado (20 bytes)
+    ; TOTAL ALOCADO: 32 bytes!
+    ; -------------------------------------------------------------
+    sub esp, 32
 
     ; -------------------------------------------------------------
-    ; 1. Coleta os parâmetros
+    ; 1. Pede o num1
     ; -------------------------------------------------------------
-    call coletar_parametros
+    push dword TAM_MSG_NUM1
+    push msg_num1
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 4], eax      ; GUARDA NA VARIÁVEL LOCAL 1
+
     ; -------------------------------------------------------------
-    ; 2. Empilha os parâmetros
+    ; 2. Pede o num2
     ; -------------------------------------------------------------
-    mov eax, [var_num2]
-    push eax                    ; [ebp + 16] num2
-    mov eax, [var_num1]
-    push eax                    ; [ebp + 12] num1
-    mov eax, [choice_precisao]
-    push eax                    ; [ebp + 8] precisao
+    push dword TAM_MSG_NUM2
+    push msg_num2
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 8], eax      ; GUARDA NA VARIÁVEL LOCAL 2
+
     ; -------------------------------------------------------------
-    ; 3. Chama a função Exponenciação
+    ; 3. Empilha e chama o módulo de matemática
     ; -------------------------------------------------------------
-    call calcular_exp           ; Pula para o arquivo exponenciacao.asm
-    add esp, 12                 ; Limpa os 3 parâmetros da pilha (3 * 4 = 12 bytes)
+    push dword [ebp - 8]    ; Empilha num2
+    push dword [ebp - 4]    ; Empilha num1
+    push dword [choice_precisao] 
+    call calcular_exp      ; Chama a função externa
+    add esp, 12
+
     ; -------------------------------------------------------------
-    ; 4. Imprimir resultado da Exponenciação (EAX)
+    ; 4. Converte o Resultado (EAX) para String
     ; -------------------------------------------------------------
-    push eax                    ; Empilha o resultado (que está no EAX)
-    push buffer_resultado       ; Empilha o buffer vazio que receberá a string
-    call int_to_str             ; Converte para string
+    push eax                ; Resultado matemático retornado no EAX
+    lea edx, [ebp - 32]     ; Endereço do buffer local
+    push edx
+    call int_to_str
     add esp, 8
 
-    ; Exibe a string "Resultado: "
+    ; A MÁGICA SEGURA: O EAX agora tem o tamanho exato. 
+    ; Vamos guardar ele na nossa nova variável local!
+    mov [ebp - 12], eax     
+
+    ; -------------------------------------------------------------
+    ; 5. Imprime "Resultado: "
+    ; -------------------------------------------------------------
     push dword TAM_MSG_RESULTADO
     push msg_resultado
     call print_string
     add esp, 8
 
-    ; Exibe o número final
-    push dword 20               ; Tamanho do buffer 
-    push buffer_resultado
+    ; -------------------------------------------------------------
+    ; 6. Imprime o número com o tamanho cravado!
+    ; -------------------------------------------------------------
+    push dword [ebp - 12]   ; Puxa o tamanho exato da variável local
+    lea edx, [ebp - 32]     ; Puxa o endereço do buffer local
+    push edx
     call print_string
     add esp, 8
 
-    jmp menu_anchor
+    ; Desfaz o Stack Frame local e volta para o _start
+    mov esp, ebp
+    pop ebp
+    ret
 
 exec_mod:
-    ; Aqui prepararemos os parâmetros e chamaremos a função do arquivo mod.asm
+        push ebp
+    mov ebp, esp
+    
+    ; -------------------------------------------------------------
+    ; ALOCAÇÃO LOCAL: O Mapa da Pilha
+    ; [ebp - 4]  -> Guarda o num1 (4 bytes)
+    ; [ebp - 8]  -> Guarda o num2 (4 bytes)
+    ; [ebp - 12] -> Guarda o TAMANHO EXATO da string de saída (4 bytes)
+    ; [ebp - 32] -> Guarda o buffer_resultado (20 bytes)
+    ; TOTAL ALOCADO: 32 bytes!
+    ; -------------------------------------------------------------
+    sub esp, 32
 
     ; -------------------------------------------------------------
-    ; 1. Coleta os parâmetros
+    ; 1. Pede o num1
     ; -------------------------------------------------------------
-    call coletar_parametros
+    push dword TAM_MSG_NUM1
+    push msg_num1
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 4], eax      ; GUARDA NA VARIÁVEL LOCAL 1
+
     ; -------------------------------------------------------------
-    ; 2. Empilha os parâmetros
+    ; 2. Pede o num2
     ; -------------------------------------------------------------
-    mov eax, [var_num2]
-    push eax                    ; [ebp + 16] num2
-    mov eax, [var_num1]
-    push eax                    ; [ebp + 12] num1
-    mov eax, [choice_precisao]
-    push eax                    ; [ebp + 8] precisao
+    push dword TAM_MSG_NUM2
+    push msg_num2
+    call pedir_numero
+    add esp, 8
+    mov [ebp - 8], eax      ; GUARDA NA VARIÁVEL LOCAL 2
+
     ; -------------------------------------------------------------
-    ; 3. Chama a função Mod
+    ; 3. Empilha e chama o módulo de matemática
     ; -------------------------------------------------------------
-    call calcular_mod           ; Pula para o arquivo mod.asm
-    add esp, 12                 ; Limpa os 3 parâmetros da pilha (3 * 4 = 12 bytes)
+    push dword [ebp - 8]    ; Empilha num2
+    push dword [ebp - 4]    ; Empilha num1
+    push dword [choice_precisao] 
+    call calcular_mod      ; Chama a função externa
+    add esp, 12
+
     ; -------------------------------------------------------------
-    ; 4. Imprimir resultado da Mod (EAX)
+    ; 4. Converte o Resultado (EAX) para String
     ; -------------------------------------------------------------
-    push eax                    ; Empilha o resultado (que está no EAX)
-    push buffer_resultado       ; Empilha o buffer vazio que receberá a string
-    call int_to_str             ; Converte para string
+    push eax                ; Resultado matemático retornado no EAX
+    lea edx, [ebp - 32]     ; Endereço do buffer local
+    push edx
+    call int_to_str
     add esp, 8
 
-    ; Exibe a string "Resultado: "
+    ; A MÁGICA SEGURA: O EAX agora tem o tamanho exato. 
+    ; Vamos guardar ele na nossa nova variável local!
+    mov [ebp - 12], eax     
+
+    ; -------------------------------------------------------------
+    ; 5. Imprime "Resultado: "
+    ; -------------------------------------------------------------
     push dword TAM_MSG_RESULTADO
     push msg_resultado
     call print_string
     add esp, 8
 
-    ; Exibe o número final
-    push dword 20               ; Tamanho do buffer 
-    push buffer_resultado
+    ; -------------------------------------------------------------
+    ; 6. Imprime o número com o tamanho cravado!
+    ; -------------------------------------------------------------
+    push dword [ebp - 12]   ; Puxa o tamanho exato da variável local
+    lea edx, [ebp - 32]     ; Puxa o endereço do buffer local
+    push edx
     call print_string
     add esp, 8
 
-    jmp menu_anchor
+    ; Desfaz o Stack Frame local e volta para o _start
+    mov esp, ebp
+    pop ebp
+    ret
 
 exec_sair:
     ; -------------------------------------------------------------
