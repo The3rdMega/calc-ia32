@@ -16,14 +16,14 @@ O projeto é composto por vários módulos que devem ser montados individualment
 1. Pré-requisitos
 Certifique-se de ter o nasm e o binutils (que contém o ld) instalados no seu sistema Linux:
 
-\`\`\`sudo apt update
+```sudo apt update
 sudo apt install nasm binutils
-\`\`\`
+```
 
 2. Compilação e Ligação
 Na pasta raiz do projeto, utilize o seguinte comando no terminal para montar todos os arquivos e gerar o executável calculadora:
 
-\`\`\`bash
+```bash
 nasm -f elf calculadora.asm -o calculadora.o
 nasm -f elf soma.asm -o soma.o
 nasm -f elf subtracao.asm -o subtracao.o
@@ -31,15 +31,15 @@ nasm -f elf multiplicacao.asm -o multiplicacao.o
 nasm -f elf exponenciacao.asm -o exponenciacao.o
 nasm -f elf divisao.asm -o divisao.o
 nasm -f elf mod.asm -o mod.o
-\`\`\`
+```
 
 ld -m elf_i386 calculadora.o soma.o subtracao.o multiplicacao.o exponenciacao.o divisao.o mod.o -o calculadora
 3. Execução
 Após a geração do binário, execute o programa com o comando:
 
-\`\`\`bash
+```bash
 ./calculadora
-\`\`\`
+```
 
 ## Detalhes da Implementação
 - Modularização: O código principal (calculadora.asm) gerencia o fluxo (I/O, menu, conversões), enquanto as operações matemáticas residem em arquivos independentes.
