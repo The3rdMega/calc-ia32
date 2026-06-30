@@ -131,19 +131,32 @@ str_to_int:
     push ecx    ; Salva Registrador de Contador em [ebp+8]
     push edx    ; Salva Registrador de Dados em [ebp+12]
     push esi    ; Salva Registrador de Stack Pointer em [ebp+16]
+    push edi    ; Salva Registrador de Extended Destination Index em [ebp+18]
 
     mov esi, [ebp + 8]      ; ESI aponta para o início da string
     sub eax, eax            ; EAX = 0 (Nosso Acumulador)
     sub ecx, ecx            ; ECX = 0 (Vai guardar cada caractere lido)
+    sub edi, edi            ; EDI = 0 (Flag de sinal: 0 = positivo, 1 = negativo)
     mov ebx, 10             ; EBX = 10 (O multiplicador constante)
+
+    ; -------------------------------------------------------------
+    ; VERIFICAÇÃO DO SINAL NEGATIVO ANTES DO LOOP
+    ; -------------------------------------------------------------
+    mov cl, [esi]           ; Olha o primeiro caractere
+    cmp cl, '-'             ; É um sinal de menos?
+    jne .loop_converter     ; Se não for, pula direto para o loop de conversão
+
+    ; Se for negativo:
+    mov edi, 1              ; Levanta a flag de número negativo!
+    inc esi                 ; Avança o ponteiro para ignorar o caractere '-' na leitura matemática
 
 .loop_converter:
     mov cl, [esi]           ; Lê 1 byte (caractere) da string apontada por ESI
     
-    cmp cl, 10              ; O caractere é um '\n' (Enter)?
-    je .fim_conversao       ; Se sim, terminamos!
-    cmp cl, 0               ; O caractere é um '\0' (Fim de string)?
-    je .fim_conversao       ; Se sim, terminamos!
+    cmp cl, 10              ; É um '\n'?
+    je .aplica_sinal        ; Se sim, terminamos de ler os números
+    cmp cl, 0               ; É um '\0'?
+    je .aplica_sinal        ; Se sim, terminamos de ler os números
 
     ; Se não for fim de string, é um dígito válido
     sub cl, 30h             ; Converte ASCII para valor numérico ('5' -> 5)
@@ -158,7 +171,17 @@ str_to_int:
     inc esi                 ; Avança o ponteiro para o próximo caractere da string
     jmp .loop_converter     ; Repete o ciclo
 
+.aplica_sinal:
+    ; -------------------------------------------------------------
+    ; VERIFICA A FLAG DE SINAL ANTES DE RETORNAR
+    ; -------------------------------------------------------------
+    cmp edi, 1              ; A flag de negativo foi levantada lá no início?
+    jne .fim_conversao      ; Se não, o EAX já está com o número positivo correto
+
+    neg eax                 ; Se sim, inverte o sinal matemático do EAX (ex: 150 vira -150)
+
 .fim_conversao:
+    pop edi    ; Recupera Registrador de Extended Destination Index em [ebp-18]
     pop esi    ; Recupera Registrador de Stack Pointer em [ebp-16]
     pop edx    ; Recupera Registrador de Dados em [ebp-12]
     pop ecx    ; Recupera Registrador de Contador em [ebp-8]     
@@ -237,7 +260,7 @@ int_to_str:
     inc edi
     mov byte [edi], 0       ; Terminador de string (nulo)
     
-    pop edi    ; Recupera Registrador de Stack Pointer em [ebp-18]
+    pop edi    ; Recupera Registrador de Extended Destination Index em [ebp-18]
     pop esi    ; Recupera Registrador de Stack Pointer em [ebp-16]
     pop edx    ; Recupera Registrador de Dados em [ebp-12]
     pop ecx    ; Recupera Registrador de Contador em [ebp-8]     
