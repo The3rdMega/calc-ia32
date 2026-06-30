@@ -30,6 +30,7 @@ calcular_sub:
     mov ebx, [ebp + 16] ; Carrega num2 em EBX
     sub eax, ebx        ; EAX = EAX - EBX
     
+    jo .trata_overflow  ; Jump if Overflow: Pula se a soma estourou o limite de 32 bits
     jmp .fim            ; Pula direto para o final (ignorando o bloco de 16 bits)
 
 .sub_16bits:
@@ -42,12 +43,28 @@ calcular_sub:
     ; Aqui subtraímos APENAS as partes baixas (16 bits) dos registradores
     sub ax, bx          ; AX = AX - BX
     
+    jo .trata_overflow  ; Jump if Overflow: Pula se a soma estourou o limite de 32 bits
+    
     ; O resultado está em AX. Mas a regra exige a saída em EAX.
     ; Usamos a instrução 'movsx' (Move with Sign-Extension) para estender o 
     ; número de 16 para 32 bits mantendo o sinal positivo ou negativo intacto.
     movsx eax, ax       
     jmp .fim
 
+.trata_overflow:
+    ; -------------------------------------------------------------
+    ; Abortar o programa em caso de overflow
+    ; (Podemos alterar para voltar para o Menu depois)
+    ; -------------------------------------------------------------
+    push dword TAM_MSG_OVERFLOW
+    push msg_overflow
+    call print_string       ; Executa o print_string que mora no calculadora.asm
+    add esp, 8
+
+    mov eax, 1              ; sys_exit
+    mov ebx, 1              ; Exit status 1 (indica que saiu com erro)
+    int 0x80
+    
 .fim:
     ; -------------------------------------------------------------
     ; Epílogo comum
