@@ -32,8 +32,10 @@ nasm -f elf exponenciacao.asm -o exponenciacao.o
 nasm -f elf divisao.asm -o divisao.o
 nasm -f elf mod.asm -o mod.o
 ```
-
+```
 ld -m elf_i386 calculadora.o soma.o subtracao.o multiplicacao.o exponenciacao.o divisao.o mod.o -o calculadora
+```
+
 3. Execução
 Após a geração do binário, execute o programa com o comando:
 
