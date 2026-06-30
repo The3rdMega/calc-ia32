@@ -49,6 +49,6 @@ Após a geração do binário, execute o programa com o comando:
 - Segurança: O programa verifica condições de estouro matemático (Overflow) nas operações de soma, subtração e multiplicação, encerrando a execução com status de erro caso necessário. Divisões por zero são tratadas para evitar falhas críticas.
 - Variáveis Locais: Todas as variáveis de processamento numérico são alocadas localmente na pilha (usando sub esp, X), garantindo a conformidade com as boas práticas de baixo nível.
 
-Desenvolvido por: Arthur Luiz Lima de Araújo (232000472) e Gabriel de Castri Dias (211055432)
+Desenvolvido por: Arthur Luiz Lima de Araújo (232000472) e Gabriel de Castro Dias (211055432)
 Disciplina: CIC0104 - Software Básico - 2026/1 - Turma 02
 Professor: Bruno Luiggi Macchiavello Espinoza
